@@ -1,0 +1,11 @@
+{
+    "username": "USER_NAME",
+    "ClientID": "APP_CLIENT_ID",
+    "UserAgent": "YOUR_NAME_Shreddit",
+    "SkipCommentIDs": [],
+    "SkipSubreddits": [],
+    "Before": "2023-07-31T00:00:00Z",
+    "MaxScore": 0,
+    "ReplacementComment": "",
+    "DryRun": true
+}

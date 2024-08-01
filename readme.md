@@ -9,7 +9,7 @@ This is not a feature rich or feature complete tool. You can honestly think of i
 ## Setup
 You need to create an Oauth application for authentication. 
 
-* https://www.reddit.com/prefs/apps Go there
+* [https://www.reddit.com/prefs/apps]() Go there
 * 'Create an app' and give it a name
 * Select `script`
 * callback url can be `http://localhost:8080`
@@ -24,11 +24,11 @@ I got super lazy I know. I could have used a yaml or json config file, but envir
 The `REDDIT_USER_AGENT` is required by reddit.
 
 ```shell
-export REDDIT_USERNAME=snoo
-export REDDIT_PASSWORD=foobar
-export REDDIT_CLIENT_ID=123
-export REDDIT_CLIENT_SECRET=123
-export REDDIT_USER_AGENT=ShredditGoClient
-export REDDIT_YEARS_BACK 11
-export REDDIT_DRY_RUN false
+export REDDIT_USERNAME='USER_NAME'
+export REDDIT_PASSWORD='USER_PASSWORD'
+export REDDIT_CLIENT_ID='APP_CLIENT_ID'
+export REDDIT_CLIENT_SECRET='APP_SECRET'
+export REDDIT_USER_AGENT='ShredditGoClient'
+export REDDIT_YEARS_BACK='11'
+export REDDIT_DRY_RUN="true"  # Set to "false" for actual execution
 ```

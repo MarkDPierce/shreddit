@@ -2,12 +2,13 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -33,6 +34,20 @@ type Config struct {
 	MaxScore            int
 	ReplacementComment  string
 	DryRun              bool
+}
+
+type RawConfig struct {
+	Username            string   `json:"username"`
+	Password            string   `json:"password"`
+	ClientID            string   `json:"ClientID"`
+	ClientSecret        string   `json:"ClientSecret"`
+	UserAgent           string   `json:"UserAgent"`
+	SkipCommentIDs      []string `json:"SkipCommentIDs"`
+	SkipSubreddits      []string `json:"SkipSubreddits"`
+	Before              string   `json:"Before"`
+	MaxScore            int      `json:"MaxScore"`
+	ReplacementComment  string   `json:"ReplacementComment"`
+	DryRun              bool     `json:"DryRun"`
 }
 
 type Comment struct {
@@ -62,6 +77,47 @@ type Child struct {
 
 type Response struct {
 	Data ResponseData
+}
+// EnvVar or Json Value
+func getEnvOrDefault(envVar, defaultValue string) string {
+	if value, exists := os.LookupEnv(envVar); exists {
+		return value
+	}
+	return defaultValue
+}
+
+func configLoader(filePath string) (*Config, error){
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open config file: %v", err)
+	}
+	defer file.Close()
+
+	var rawConfig RawConfig
+	if err := json.NewDecoder(file).Decode(&rawConfig); err != nil {
+		return nil, fmt.Errorf("failed to decode config file: %v", err)
+	}
+	
+	before, err := time.Parse(time.RFC3339, rawConfig.Before)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse 'Before' date: %v", err)
+	}
+
+	config := &Config{
+		Username:           rawConfig.Username,
+		Password:           getEnvOrDefault("REDDIT_PASSWORD", rawConfig.Password),
+		ClientID:           rawConfig.ClientID,
+		ClientSecret:       getEnvOrDefault("REDDIT_CLIENT_SECRET", rawConfig.ClientSecret),
+		UserAgent:          rawConfig.UserAgent,
+		SkipCommentIDs:     rawConfig.SkipCommentIDs,
+		SkipSubreddits:     rawConfig.SkipSubreddits,
+		Before:             before,
+		MaxScore:           rawConfig.MaxScore,
+		ReplacementComment: rawConfig.ReplacementComment,
+		DryRun:             rawConfig.DryRun,
+	}
+
+	return config, nil
 }
 
 func (c *Comment) Created() time.Time {
@@ -96,13 +152,69 @@ func (c *Comment) ShouldSkip(config *Config) bool {
 	return false
 }
 
+func LoadConfig(filename string) (*Config, error) {
+	// Open File
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Printf("Failed to open config file: %v", err)
+		return nil, err
+	}
+	defer file.Close()
+
+	// Read File
+	byteValue, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Printf("Failed to read config file: %v", err)
+		return nil, err
+	}
+
+	var config Config
+	// Unmarshal JSON into config struct
+	if err := json.Unmarshal(byteValue, &config); err != nil {
+		return nil, fmt.Errorf("Failed to unmarshal config into struct: %v", err)
+	}
+
+	// Override sensitive fields with environment variables
+	if password := os.Getenv("REDDIT_PASSWORD"); password != "" {
+		config.Password = password
+	} else {
+		return nil, fmt.Errorf("Reddit password not set")
+	}
+
+	if clientSecret := os.Getenv("REDDIT_CLIENT_SECRET"); clientSecret != "" {
+		config.ClientSecret = clientSecret
+	} else {
+		return nil, fmt.Errorf("Reddit Client Secret not set")
+	}
+
+	// Handle yearsBack from environment variable
+	yearsBackStr := os.Getenv("REDDIT_YEARS_BACK")
+	yearsBack, err := strconv.Atoi(yearsBackStr)
+	if err != nil {
+		if yearsBackStr != "" {
+			log.Printf("Invalid value for REDDIT_YEARS_BACK: %v", err)
+			return nil, err
+		}
+		yearsBack = 11 // Default to 11 if not set or invalid
+	}
+
+	config.Before = time.Now().AddDate(-yearsBack, 0, 0)
+
+	// Handle DryRun
+	config.DryRun = os.Getenv("REDDIT_DRY_RUN") == "true"
+
+	return &config, nil
+}
+
 func (c *Comment) Delete(client *http.Client, accessToken string, config *Config) {
-	log.Println("Deleting...")
+	
 
 	if c.ShouldSkip(config) || config.DryRun {
+		fmt.Println("Dryrun set, skipping deletion.")
 		return
 	}
 
+	log.Println("Deleting...")
 	data := url.Values{}
 	data.Set("id", c.Fullname())
 
@@ -217,7 +329,7 @@ func List(client *http.Client, config *Config) <-chan Comment {
 	return out
 }
 
-func newAccessToken(config *Config) (string, error) {
+func newAccessToken(config *Config) (string, error) {	
 	// Prepare form data
 	form := url.Values{}
 	form.Add("grant_type", "password")
@@ -242,48 +354,49 @@ func newAccessToken(config *Config) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	// Decode response
+	// Read the response body
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Try to decode response as JSON
 	var res AccessTokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return "", err
+	if err := json.Unmarshal(body, &res); err != nil {
+		// Log the response body for further inspection
+		return "", fmt.Errorf("unable to decode response: %v\nResponse body: %s", err, body)
 	}
 
 	// Check for errors in the response
 	if res.Error != "" {
-		return "", errors.New(res.ErrorDesc)
+		return "", fmt.Errorf("error in the response: %s", res.ErrorDesc)
 	}
 
 	return res.AccessToken, nil
 }
 
 func main() {
-	client := &http.Client{}
-
-	config := &Config{
-		Username:           os.Getenv("REDDIT_USERNAME"),
-		Password:           os.Getenv("REDDIT_PASSWORD"),
-		ClientID:           os.Getenv("REDDIT_CLIENT_ID"),
-		ClientSecret:       os.Getenv("REDDIT_CLIENT_SECRET"),
-		UserAgent:          os.Getenv("REDDIT_USER_AGENT"),
-		SkipCommentIDs:     []string{},
-		SkipSubreddits:     []string{},
-		Before:             time.Now().AddDate(-os.Getenv("REDDIT_YEARS_BACK"),, 0, 0), // 11 year ago
-		MaxScore:           0,
-		ReplacementComment: "",
-		DryRun:             os.Getenv("REDDIT_DRY_RUN"),
+	// Load config
+	config, err := configLoader("config.json")
+	if err != nil {
+		log.Fatalf("Error loading config: %v", err)
 	}
 
-	// Get access token
+ 	// Get access token
 	accessToken, err := newAccessToken(config)
 	if err != nil {
 		log.Fatalf("Failed to obtain access token: %v", err)
 	}
 
+	client := &http.Client{}
 	// List and process comments
 	for comment := range List(client, config) {
+		// Two-step approach to cleaning: edit first, then delete
 		comment.Edit(client, accessToken, config)
 		comment.Delete(client, accessToken, config)
-		fmt.Print("Sleeping 15 seconds\n") // This is mostly to prevent getting throttled
-		time.Sleep(15 * time.Second) 
+
+		// Sleep to avoid throttling
+		fmt.Print("Sleeping 15 seconds\n")
+		time.Sleep(15 * time.Second)
 	}
 }
