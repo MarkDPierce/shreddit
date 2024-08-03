@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -23,31 +22,31 @@ type AccessTokenResponse struct {
 }
 
 type Config struct {
-	Username            string
-	Password            string
-	ClientID            string
-	ClientSecret        string
-	UserAgent           string
-	SkipCommentIDs      []string
-	SkipSubreddits      []string
-	Before              time.Time
-	MaxScore            int
-	ReplacementComment  string
-	DryRun              bool
+	Username           string
+	Password           string
+	ClientID           string
+	ClientSecret       string
+	UserAgent          string
+	SkipCommentIDs     []string
+	SkipSubreddits     []string
+	Before             time.Time
+	MaxScore           int
+	ReplacementComment string
+	DryRun             bool
 }
 
 type RawConfig struct {
-	Username            string   `json:"username"`
-	Password            string   `json:"password"`
-	ClientID            string   `json:"ClientID"`
-	ClientSecret        string   `json:"ClientSecret"`
-	UserAgent           string   `json:"UserAgent"`
-	SkipCommentIDs      []string `json:"SkipCommentIDs"`
-	SkipSubreddits      []string `json:"SkipSubreddits"`
-	Before              string   `json:"Before"`
-	MaxScore            int      `json:"MaxScore"`
-	ReplacementComment  string   `json:"ReplacementComment"`
-	DryRun              bool     `json:"DryRun"`
+	Username           string   `json:"username"`
+	Password           string   `json:"password"`
+	ClientID           string   `json:"ClientID"`
+	ClientSecret       string   `json:"ClientSecret"`
+	UserAgent          string   `json:"UserAgent"`
+	SkipCommentIDs     []string `json:"SkipCommentIDs"`
+	SkipSubreddits     []string `json:"SkipSubreddits"`
+	Before             string   `json:"Before"`
+	MaxScore           int      `json:"MaxScore"`
+	ReplacementComment string   `json:"ReplacementComment"`
+	DryRun             bool     `json:"DryRun"`
 }
 
 type Comment struct {
@@ -78,6 +77,7 @@ type Child struct {
 type Response struct {
 	Data ResponseData
 }
+
 // EnvVar or Json Value
 func getEnvOrDefault(envVar, defaultValue string) string {
 	if value, exists := os.LookupEnv(envVar); exists {
@@ -86,7 +86,7 @@ func getEnvOrDefault(envVar, defaultValue string) string {
 	return defaultValue
 }
 
-func configLoader(filePath string) (*Config, error){
+func configLoader(filePath string) (*Config, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open config file: %v", err)
@@ -97,7 +97,7 @@ func configLoader(filePath string) (*Config, error){
 	if err := json.NewDecoder(file).Decode(&rawConfig); err != nil {
 		return nil, fmt.Errorf("failed to decode config file: %v", err)
 	}
-	
+
 	before, err := time.Parse(time.RFC3339, rawConfig.Before)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse 'Before' date: %v", err)
@@ -131,22 +131,23 @@ func (c *Comment) Fullname() string {
 func (c *Comment) ShouldSkip(config *Config) bool {
 	for _, id := range config.SkipCommentIDs {
 		if id == c.ID {
-			log.Printf("Skipping due to `skip_comment_ids` filter")
+			fmt.Printf("Skipping due to `skip_comment_ids` filter\n")
 			return true
 		}
 	}
 	for _, subreddit := range config.SkipSubreddits {
+		fmt.Printf("Subreddit: %v\n", subreddit)
 		if subreddit == c.Subreddit {
-			log.Printf("Skipping due to `skip_subreddits` filter")
+			fmt.Printf("Skipping due to `skip_subreddits` filter\n")
 			return true
 		}
 	}
 	if c.Created().After(config.Before) {
-		log.Printf("Skipping due to `before` filter (%s)", config.Before)
+		fmt.Printf("Skipping due to `before` filter (%s)\n", config.Before)
 		return true
 	}
 	if c.Source.Score > int64(config.MaxScore) {
-		log.Printf("Skipping due to `max_score` filter (%d)", config.MaxScore)
+		fmt.Printf("Skipping due to `max_score` filter (%d)\n", config.MaxScore)
 		return true
 	}
 	return false
@@ -156,7 +157,7 @@ func LoadConfig(filename string) (*Config, error) {
 	// Open File
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Printf("Failed to open config file: %v", err)
+		fmt.Printf("Failed to open config file: %v", err)
 		return nil, err
 	}
 	defer file.Close()
@@ -164,7 +165,7 @@ func LoadConfig(filename string) (*Config, error) {
 	// Read File
 	byteValue, err := ioutil.ReadAll(file)
 	if err != nil {
-		log.Printf("Failed to read config file: %v", err)
+		fmt.Printf("Failed to read config file: %v", err)
 		return nil, err
 	}
 
@@ -192,7 +193,7 @@ func LoadConfig(filename string) (*Config, error) {
 	yearsBack, err := strconv.Atoi(yearsBackStr)
 	if err != nil {
 		if yearsBackStr != "" {
-			log.Printf("Invalid value for REDDIT_YEARS_BACK: %v", err)
+			fmt.Printf("Invalid value for REDDIT_YEARS_BACK: %v", err)
 			return nil, err
 		}
 		yearsBack = 11 // Default to 11 if not set or invalid
@@ -207,20 +208,19 @@ func LoadConfig(filename string) (*Config, error) {
 }
 
 func (c *Comment) Delete(client *http.Client, accessToken string, config *Config) {
-	
 
 	if c.ShouldSkip(config) || config.DryRun {
-		fmt.Println("Dryrun set, skipping deletion.")
+		fmt.Println("dryrun set or item set to be skipped, skipping deletion.")
 		return
 	}
 
-	log.Println("Deleting...")
+	fmt.Println("Deleting...")
 	data := url.Values{}
 	data.Set("id", c.Fullname())
 
 	req, err := http.NewRequest("POST", "https://oauth.reddit.com/api/del", strings.NewReader(data.Encode()))
 	if err != nil {
-		log.Printf("Failed to create request: %v", err)
+		fmt.Printf("Failed to send delete request: %v\n", err)
 		return
 	}
 
@@ -230,18 +230,18 @@ func (c *Comment) Delete(client *http.Client, accessToken string, config *Config
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Failed to delete comment: %v", err)
+		fmt.Printf("Failed to delete comment: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
 }
 
 func (c *Comment) Edit(client *http.Client, accessToken string, config *Config) {
-	log.Println("Editing...")
-
 	if c.ShouldSkip(config) || config.DryRun {
 		return
 	}
+
+	fmt.Println("Editing...")
 
 	data := url.Values{}
 	data.Set("thing_id", c.Fullname())
@@ -249,7 +249,7 @@ func (c *Comment) Edit(client *http.Client, accessToken string, config *Config) 
 
 	req, err := http.NewRequest("POST", "https://oauth.reddit.com/api/editusertext?raw_json=1", strings.NewReader(data.Encode()))
 	if err != nil {
-		log.Printf("Failed to create request: %v", err)
+		fmt.Printf("Failed to create request: %v\n", err)
 		return
 	}
 
@@ -259,21 +259,21 @@ func (c *Comment) Edit(client *http.Client, accessToken string, config *Config) 
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("Failed to edit comment: %v", err)
+		fmt.Printf("Failed to edit comment: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	var res map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		log.Printf("Failed to decode response: %v", err)
+		fmt.Printf("Failed to decode response: %v\n", err)
 		return
 	}
 
 	if _, ok := res["jquery"]; ok {
-		log.Printf("Edited successfully.")
+		fmt.Printf("Edited successfully.\n")
 	} else {
-		log.Printf("Failed to edit: %v", res)
+		fmt.Printf("Failed to edit: %v\n", res)
 	}
 }
 
@@ -282,7 +282,7 @@ func List(client *http.Client, config *Config) <-chan Comment {
 
 	go func() {
 		defer close(out)
-		log.Println("Fetching comments...")
+		fmt.Println("Fetching comments...")
 		var lastSeen string
 
 		for {
@@ -295,7 +295,7 @@ func List(client *http.Client, config *Config) <-chan Comment {
 
 			req, err := http.NewRequest("GET", uri, nil)
 			if err != nil {
-				log.Printf("Failed to create request: %v", err)
+				fmt.Printf("Failed to create request: %v", err)
 				return
 			}
 
@@ -303,14 +303,14 @@ func List(client *http.Client, config *Config) <-chan Comment {
 
 			resp, err := client.Do(req)
 			if err != nil {
-				log.Printf("Failed to fetch comments: %v", err)
+				fmt.Printf("Failed to fetch comments: %v", err)
 				return
 			}
 			defer resp.Body.Close()
 
 			var res Response
 			if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-				log.Printf("Failed to decode response: %v", err)
+				fmt.Printf("Failed to decode response: %v", err)
 				return
 			}
 
@@ -329,7 +329,7 @@ func List(client *http.Client, config *Config) <-chan Comment {
 	return out
 }
 
-func newAccessToken(config *Config) (string, error) {	
+func newAccessToken(config *Config) (string, error) {
 	// Prepare form data
 	form := url.Values{}
 	form.Add("grant_type", "password")
@@ -379,13 +379,13 @@ func main() {
 	// Load config
 	config, err := configLoader("config.json")
 	if err != nil {
-		log.Fatalf("Error loading config: %v", err)
+		fmt.Errorf("Error loading config: %v\n", err)
 	}
 
- 	// Get access token
+	// Get access token
 	accessToken, err := newAccessToken(config)
 	if err != nil {
-		log.Fatalf("Failed to obtain access token: %v", err)
+		fmt.Errorf("Failed to obtain access token: %v\n", err)
 	}
 
 	client := &http.Client{}
@@ -396,7 +396,7 @@ func main() {
 		comment.Delete(client, accessToken, config)
 
 		// Sleep to avoid throttling
-		fmt.Print("Sleeping 15 seconds\n")
-		time.Sleep(15 * time.Second)
+		//fmt.Print("Sleeping 15 seconds\n")
+		//time.Sleep(15 * time.Second)
 	}
 }
