@@ -1,0 +1,17 @@
+{
+    "username": "",
+    "ClientID": "",
+    "ClientSecret": "",
+    "Password": "",
+    "UserAgent": "",
+    "SkipCommentIDs": [
+        ""
+    ],
+    "SkipSubreddits": [
+        ""
+    ],
+    "Before": "2023-08-05T00:00:00Z",
+    "MaxScore": 0,
+    "ReplacementComment": "",
+    "DryRun": false
+}
